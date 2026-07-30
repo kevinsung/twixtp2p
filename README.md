@@ -25,6 +25,10 @@ npm run check    # svelte-check + TypeScript
 
 Deploying is just copying `dist/` somewhere. Asset URLs are relative, so a subdirectory works.
 
+Pushing to `main` deploys to GitHub Pages via `.github/workflows/deploy.yml`, which builds the
+bundle and publishes it after `npm run check` and `npm test` pass. This needs Pages enabled once,
+under Settings → Pages → Source: **GitHub Actions**.
+
 ## The rules
 
 - 24×24 grid of holes with the four corners removed. 12, 18 and 30 are also available.
