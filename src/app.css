@@ -112,6 +112,61 @@ textarea {
   outline-offset: 2px;
 }
 
+/*
+ * Shared by the home and waiting screens: one centred column, vertically
+ * centred too, but still scrollable once the content outgrows the viewport.
+ */
+.home {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem 0;
+  overflow-y: auto;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.card p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9em;
+}
+
+/* A row of mutually exclusive choices, sized to fill the card. */
+.seg-row {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.seg-row button {
+  flex: 1;
+  padding: 0.4em 0;
+  font-size: 0.9em;
+}
+
+.seg-row button[aria-checked='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

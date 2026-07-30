@@ -25,20 +25,11 @@
     committed: GameState;
     pendingPlace: number | null;
     interactive: boolean;
-    showCoordinates?: boolean;
     onCell: (cell: number) => void;
     onLink: (a: number, b: number) => void;
   }
 
-  let {
-    view,
-    committed,
-    pendingPlace,
-    interactive,
-    showCoordinates = true,
-    onCell,
-    onLink,
-  }: Props = $props();
+  let { view, committed, pendingPlace, interactive, onCell, onLink }: Props = $props();
 
   const MARGIN = 1.3;
 
@@ -184,18 +175,16 @@
     />
   </g>
 
-  {#if showCoordinates}
-    <g class="coords" aria-hidden="true">
-      {#each { length: size } as _, c (c)}
-        <text class="coord" x={c} y={-MARGIN + 0.45} text-anchor="middle">{columnLabel(c)}</text>
-      {/each}
-      {#each { length: size } as _, r (r)}
-        <text class="coord" x={-MARGIN + 0.4} y={r} dominant-baseline="middle" text-anchor="middle"
-          >{r + 1}</text
-        >
-      {/each}
-    </g>
-  {/if}
+  <g class="coords" aria-hidden="true">
+    {#each { length: size } as _, c (c)}
+      <text class="coord" x={c} y={-MARGIN + 0.45} text-anchor="middle">{columnLabel(c)}</text>
+    {/each}
+    {#each { length: size } as _, r (r)}
+      <text class="coord" x={-MARGIN + 0.4} y={r} dominant-baseline="middle" text-anchor="middle"
+        >{r + 1}</text
+      >
+    {/each}
+  </g>
 
   <g class="holes" aria-hidden="true">
     {#each holes as cell (cell)}

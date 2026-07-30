@@ -1,25 +1,18 @@
 /**
- * Human-readable move notation and the save-file format.
+ * Human-readable move notation and the transcript format.
  *
  * Cells read as column letter + row number with A1 at the top left, matching
  * the usual TwixT convention. Columns run A..Z then AA.. so the 30×30 board
  * still labels cleanly.
  *
- * Save files are JSON holding the move list, not a board snapshot — the board
- * is always recoverable by replaying, and a move list also restores history for
- * undo and the move-list scrubber.
+ * A transcript is the board size followed by the same notation the sidebar
+ * shows, all whitespace separated — small enough to paste into a chat window,
+ * and a move list rather than a board snapshot, so replaying it restores
+ * history for undo and the move-list scrubber too.
  */
 
-import { colOf, isHoleCell, rowOf } from './board';
+import { LIGHT, MAX_SIZE, MIN_SIZE, colOf, isHoleCell, otherSeat, rowOf, type Seat } from './board';
 import type { GameMove, GameState, LinkOp } from './game';
-
-export const SAVE_VERSION = 1;
-
-export interface SaveFile {
-  v: number;
-  size: number;
-  moves: GameMove[];
-}
 
 export function columnLabel(col: number): string {
   let label = '';
@@ -78,17 +71,31 @@ export function formatMove(size: number, move: GameMove): string {
   }
 }
 
-export function serializeGame(state: GameState): string {
-  const save: SaveFile = { v: SAVE_VERSION, size: state.size, moves: state.moves };
-  return JSON.stringify(save, null, 2);
+/** The seat letter used in a transcript's `resign:` token. */
+function seatLetter(seat: Seat): string {
+  return seat === LIGHT ? 'R' : 'B';
+}
+
+/**
+ * The whole game as pasteable text: `24 E5 F7 +E5/F7 M13 swap`.
+ *
+ * Resignation carries its seat, because a player may resign on the opponent's
+ * turn — parity alone would not say who gave up.
+ */
+export function serializeTranscript(state: GameState): string {
+  const parts = [String(state.size)];
+  for (const move of state.moves) {
+    parts.push(move.t === 'resign' ? `resign:${seatLetter(move.seat)}` : formatMove(state.size, move));
+  }
+  return parts.join(' ');
 }
 
 /**
  * Validate an untrusted value as a `GameMove`.
  *
- * Shared by save-file loading and the network protocol: both accept data we did
- * not produce, and neither may hand a malformed move to the engine. Rule
- * legality is a separate question, decided by replaying.
+ * Shared by the network protocol and peer resync: both accept data we did not
+ * produce, and neither may hand a malformed move to the engine. Rule legality
+ * is a separate question, decided by replaying.
  */
 export function parseMove(size: number, value: unknown): GameMove | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -128,36 +135,79 @@ export type ParseResult =
   | { ok: true; size: number; moves: GameMove[] }
   | { ok: false; error: string };
 
-/** Parse a save file. Does not check rule legality — replay decides that. */
-export function parseSaveFile(text: string): ParseResult {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return { ok: false, error: 'not valid JSON' };
-  }
+const PLACEMENT = /^[A-Za-z]+\d+$/;
+const LINK_OP = /^([+-])([A-Za-z]+\d+)\/([A-Za-z]+\d+)$/;
 
-  if (typeof data !== 'object' || data === null) {
-    return { ok: false, error: 'not a save file' };
-  }
-  const save = data as Record<string, unknown>;
+/**
+ * Parse a transcript. Does not check rule legality — replay decides that.
+ *
+ * The grammar needs no punctuation between moves because the three token
+ * shapes cannot be confused: a placement starts with a letter, a link edit with
+ * `+` or `-`, and the leading board size with a digit. Link edits attach to the
+ * placement in front of them, which is what makes a turn one move rather than
+ * several.
+ */
+export function parseTranscript(text: string): ParseResult {
+  const tokens = text.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return { ok: false, error: 'empty transcript' };
 
-  if (save.v !== SAVE_VERSION) {
-    return { ok: false, error: `unsupported save version ${String(save.v)}` };
-  }
-  if (typeof save.size !== 'number' || !Number.isInteger(save.size)) {
-    return { ok: false, error: 'missing board size' };
-  }
-  if (!Array.isArray(save.moves)) {
-    return { ok: false, error: 'missing move list' };
+  const size = Number(tokens[0]);
+  if (!Number.isInteger(size) || size < MIN_SIZE || size > MAX_SIZE) {
+    return { ok: false, error: `"${tokens[0]}" is not a board size between ${MIN_SIZE} and ${MAX_SIZE}` };
   }
 
   const moves: GameMove[] = [];
-  for (const [i, raw] of save.moves.entries()) {
-    const move = parseMove(save.size, raw);
-    if (!move) return { ok: false, error: `move ${i + 1} is malformed` };
-    moves.push(move);
+  // The seat that would be resigning, for a bare `resign` in a hand-written
+  // transcript. Mirrors the engine: a placement passes the turn, a swap does not.
+  let toMove: Seat = LIGHT;
+  /** The turn link edits currently attach to. */
+  let open: Extract<GameMove, { t: 'turn' }> | null = null;
+
+  for (const token of tokens.slice(1)) {
+    const word = token.toLowerCase();
+
+    if (PLACEMENT.test(token)) {
+      const cell = notationToCell(size, token);
+      if (cell === null) return { ok: false, error: `"${token}" is not a hole on a ${size}×${size} board` };
+      open = { t: 'turn', place: cell, linkOps: [] };
+      moves.push(open);
+      toMove = otherSeat(toMove);
+      continue;
+    }
+
+    const link = LINK_OP.exec(token);
+    if (link) {
+      if (!open) return { ok: false, error: `link edit "${token}" has no placement before it` };
+      const a = notationToCell(size, link[2]!);
+      const b = notationToCell(size, link[3]!);
+      if (a === null || b === null) {
+        return { ok: false, error: `"${token}" names a hole that is not on the board` };
+      }
+      open.linkOps.push({ add: link[1] === '+', a, b });
+      continue;
+    }
+
+    if (word === 'swap') {
+      moves.push({ t: 'swap' });
+      open = null;
+      continue;
+    }
+
+    if (word === 'draw') {
+      moves.push({ t: 'draw' });
+      open = null;
+      continue;
+    }
+
+    if (word === 'resign' || word === 'resign:r' || word === 'resign:b') {
+      const seat: Seat = word === 'resign:r' ? 0 : word === 'resign:b' ? 1 : toMove;
+      moves.push({ t: 'resign', seat });
+      open = null;
+      continue;
+    }
+
+    return { ok: false, error: `"${token}" is not a move` };
   }
 
-  return { ok: true, size: save.size, moves };
+  return { ok: true, size, moves };
 }

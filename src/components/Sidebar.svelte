@@ -1,8 +1,10 @@
 <script lang="ts">
   import { LIGHT, seatName } from '../lib/engine/board';
-  import { formatMove } from '../lib/engine/notation';
+  import { formatMove, serializeTranscript } from '../lib/engine/notation';
+  import { copyText } from '../lib/net/clipboard';
   import type { GameController } from '../lib/stores/game.svelte';
   import type { OnlineGame } from '../lib/stores/online.svelte';
+  import { settings } from '../lib/stores/settings.svelte';
 
   interface Props {
     game: GameController;
@@ -12,12 +14,12 @@
 
   let { game, online }: Props = $props();
 
-  let state = $derived(game.committed);
+  let position = $derived(game.committed);
   let mySeat = $derived(game.control === 'both' ? null : game.control);
   let net = $derived(online?.view ?? null);
 
   let status = $derived.by(() => {
-    const result = state.result;
+    const result = position.result;
     if (result) {
       if (result.kind === 'draw') return 'Draw.';
       const who = seatName(result.seat);
@@ -26,15 +28,15 @@
       if (mySeat === null) return `${who} wins ${suffix}.`;
       return mine ? `You win ${suffix}.` : `${who} wins ${suffix}.`;
     }
-    const mover = seatName(state.toMove);
+    const mover = seatName(position.toMove);
     if (mySeat === null) return `${mover} to move.`;
-    return state.toMove === mySeat ? `Your move (${mover}).` : `Waiting for ${mover}…`;
+    return position.toMove === mySeat ? `Your move (${mover}).` : `Waiting for ${mover}…`;
   });
 
   let rows = $derived.by(() => {
     const out: Array<{ n: number; light: string; dark: string }> = [];
-    state.moves.forEach((move, i) => {
-      const text = formatMove(state.size, move);
+    position.moves.forEach((move, i) => {
+      const text = formatMove(position.size, move);
       if (i % 2 === 0) out.push({ n: i / 2 + 1, light: text, dark: '' });
       else out[out.length - 1]!.dark = text;
     });
@@ -43,8 +45,8 @@
 
   let canUndo = $derived(
     online
-      ? net?.status === 'ready' && state.moves.length > 0 && !net.awaitingUndoReply
-      : game.pending !== null || state.moves.length > 0,
+      ? net?.status === 'ready' && position.moves.length > 0 && !net.awaitingUndoReply
+      : game.pending !== null || position.moves.length > 0,
   );
 
   function undo(): void {
@@ -53,8 +55,18 @@
   }
 
   function resign(): void {
-    const seat = mySeat ?? state.toMove;
+    const seat = mySeat ?? position.toMove;
     if (confirm(`Resign as ${seatName(seat)}?`)) game.resign(seat);
+  }
+
+  let copied = $state(false);
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function copyTranscript(): Promise<void> {
+    if (!(await copyText(serializeTranscript(position)))) return;
+    copied = true;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copied = false), 2000);
   }
 </script>
 
@@ -78,7 +90,7 @@
   {/if}
 
   <section class="status" aria-live="polite">
-    <span class="dot {state.toMove === LIGHT ? 'light' : 'dark'}" class:over={!!state.result}></span>
+    <span class="dot {position.toMove === LIGHT ? 'light' : 'dark'}" class:over={!!position.result}></span>
     <p>{status}</p>
   </section>
 
@@ -138,18 +150,28 @@
     {#if online}
       <button
         onclick={() => online.offerDraw()}
-        disabled={!!state.result || net?.status !== 'ready' || net?.awaitingDrawReply}
+        disabled={!!position.result || net?.status !== 'ready' || net?.awaitingDrawReply}
       >
         Offer draw
       </button>
     {/if}
-    <button class="danger" onclick={resign} disabled={!!state.result}>Resign</button>
+    <button class="danger" onclick={resign} disabled={!!position.result}>Resign</button>
   </section>
+
+  <label class="check">
+    <input type="checkbox" bind:checked={settings.confirmMoves} />
+    Confirm moves
+  </label>
 
   {#if game.pending}
     <p class="hint">
       Click a link to remove it, or a dashed lane to add one. Amber lanes are blocked by an existing
       link.
+    </p>
+  {:else}
+    <p class="hint">
+      Confirmation is what lets you adjust links before committing. Without it, a move commits the
+      moment you place a peg.
     </p>
   {/if}
 
@@ -161,7 +183,17 @@
   {/if}
 
   <section class="moves">
-    <h2>Moves</h2>
+    <div class="moves-head">
+      <h2>Moves</h2>
+      <button
+        class="copy"
+        disabled={position.moves.length === 0}
+        onclick={copyTranscript}
+        title="Copy the whole game as text you can paste back in"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
     {#if rows.length === 0}
       <p class="empty">No moves yet.</p>
     {:else}
@@ -298,12 +330,33 @@
     flex: 1;
   }
 
+  .moves-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+
   .moves h2 {
     font-size: 0.75em;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-faint);
-    margin: 0 0 0.4rem;
+    margin: 0;
+  }
+
+  .copy {
+    padding: 0.15em 0.5em;
+    font-size: 0.8em;
+    color: var(--text-dim);
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9em;
   }
 
   .empty {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { LIGHT, idx, isHoleCell } from './board';
+import { DARK, LIGHT, idx, isHoleCell } from './board';
 import { applyMove, createGame, replay, stateHash, type GameState } from './game';
 import {
   cellToNotation,
@@ -9,8 +9,8 @@ import {
   formatMove,
   notationToCell,
   parseMove,
-  parseSaveFile,
-  serializeGame,
+  parseTranscript,
+  serializeTranscript,
 } from './notation';
 
 const SIZE = 24;
@@ -81,17 +81,38 @@ describe('move formatting', () => {
   });
 });
 
-describe('save files', () => {
-  it('round-trips a game to an identical position', () => {
+describe('transcripts', () => {
+  function move(state: GameState, m: Parameters<typeof applyMove>[1]): GameState {
+    const result = applyMove(state, m);
+    if (!result.ok) throw new Error(result.error);
+    return result.state;
+  }
+
+  /** A game exercising link edits and the pie rule. */
+  function sampleGame(): GameState {
     let state = createGame(SIZE);
     state = play(state, 5, 5);
-    const swapped = applyMove(state, { t: 'swap' });
-    if (!swapped.ok) throw new Error(swapped.error);
-    state = swapped.state;
+    state = move(state, { t: 'swap' });
     state = play(state, 6, 7);
-    state = play(state, 7, 5);
+    // A knight's move from the peg at (5,5), so the engine auto-links them;
+    // the turn then drops that link and puts it straight back.
+    state = move(state, {
+      t: 'turn',
+      place: idx(SIZE, 7, 6),
+      linkOps: [
+        { add: false, a: idx(SIZE, 5, 5), b: idx(SIZE, 7, 6) },
+        { add: true, a: idx(SIZE, 5, 5), b: idx(SIZE, 7, 6) },
+      ],
+    });
+    return state;
+  }
 
-    const parsed = parseSaveFile(serializeGame(state));
+  it('round-trips a game with link edits and a swap', () => {
+    const state = sampleGame();
+    const text = serializeTranscript(state);
+    expect(text).toBe('24 F6 swap H7 G8 -F6/G8 +F6/G8');
+
+    const parsed = parseTranscript(text);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
@@ -99,16 +120,63 @@ describe('save files', () => {
     const rebuilt = replay(parsed.size, parsed.moves);
     expect(stateHash(rebuilt)).toBe(stateHash(state));
     expect(rebuilt.swapped).toBe(true);
+    expect(rebuilt.moves).toEqual(state.moves);
+  });
+
+  it('round-trips a resignation with the seat that gave up', () => {
+    let state = createGame(SIZE);
+    state = play(state, 5, 5);
+    // LIGHT has just moved, so it is DARK to move — a bare `resign` would name
+    // the wrong player.
+    state = move(state, { t: 'resign', seat: LIGHT });
+
+    const text = serializeTranscript(state);
+    expect(text).toBe('24 F6 resign:R');
+
+    const parsed = parseTranscript(text);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.moves[1]).toEqual({ t: 'resign', seat: LIGHT });
+    expect(replay(parsed.size, parsed.moves).result).toEqual({
+      kind: 'win',
+      seat: DARK,
+      by: 'resignation',
+    });
+  });
+
+  it('reads a hand-written resignation as the player to move', () => {
+    const parsed = parseTranscript('24 F6 G8 resign');
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    // Two placements have been played, so it is LIGHT's turn again.
+    expect(parsed.moves[2]).toEqual({ t: 'resign', seat: LIGHT });
+  });
+
+  it('accepts draws and is insensitive to spacing and keyword case', () => {
+    const parsed = parseTranscript('  18\n F6   SWAP\tH7 draw ');
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.size).toBe(18);
+    expect(parsed.moves.map((m) => m.t)).toEqual(['turn', 'swap', 'turn', 'draw']);
   });
 
   it('rejects malformed input rather than throwing', () => {
-    expect(parseSaveFile('{').ok).toBe(false);
-    expect(parseSaveFile('null').ok).toBe(false);
-    expect(parseSaveFile(JSON.stringify({ v: 99, size: 24, moves: [] })).ok).toBe(false);
-    expect(parseSaveFile(JSON.stringify({ v: 1, size: 24 })).ok).toBe(false);
-    expect(
-      parseSaveFile(JSON.stringify({ v: 1, size: 24, moves: [{ t: 'turn', place: 0 }] })).ok,
-    ).toBe(false);
+    expect(parseTranscript('').ok).toBe(false);
+    expect(parseTranscript('F6 G8').ok).toBe(false); // no board size
+    expect(parseTranscript('7 F6').ok).toBe(false); // below MIN_SIZE
+    expect(parseTranscript('64 F6').ok).toBe(false); // above MAX_SIZE
+    expect(parseTranscript('24 F6 castle').ok).toBe(false); // unknown token
+    expect(parseTranscript('24 A1').ok).toBe(false); // a removed corner
+    expect(parseTranscript('24 +F6/G8 F6').ok).toBe(false); // link op with no placement
+    expect(parseTranscript('24 F6 swap +F6/G8').ok).toBe(false); // swap closes the turn
+  });
+
+  it('leaves rule legality to the replay', () => {
+    // Well-formed notation, but both players cannot place on the same hole.
+    const parsed = parseTranscript('24 F6 F6');
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(() => replay(parsed.size, parsed.moves)).toThrow();
   });
 });
 

@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { idx } from '../lib/engine/board';
 import { cellToNotation } from '../lib/engine/notation';
+import { settings } from '../lib/stores/settings.svelte';
 import App from '../App.svelte';
 
 const SIZE = 24;
@@ -22,6 +23,9 @@ let host: HTMLDivElement;
 let app: Record<string, unknown> | null = null;
 
 beforeEach(() => {
+  // `settings` is a module singleton, so preferences would otherwise leak from
+  // one test to the next.
+  settings.confirmMoves = false;
   host = document.createElement('div');
   document.body.appendChild(host);
   app = mount(App, { target: host }) as Record<string, unknown>;
@@ -56,6 +60,16 @@ function startLocalGame(): void {
   click(buttonWith('Start'));
 }
 
+/** Turn on the in-game "Confirm moves" toggle, which defaults to off. */
+function enableConfirmation(): void {
+  const box = [...host.querySelectorAll('label.check')].find((label) =>
+    label.textContent?.includes('Confirm moves'),
+  )?.firstElementChild as HTMLInputElement | undefined;
+  if (!box) throw new Error('no Confirm moves toggle');
+  box.click();
+  flushSync();
+}
+
 function play(r: number, c: number): void {
   click(cell(r, c));
   const confirm = buttonWith('Confirm move');
@@ -63,7 +77,7 @@ function play(r: number, c: number): void {
 }
 
 describe('the app shell', () => {
-  it('opens on the menu', () => {
+  it('opens on the home screen', () => {
     expect(host.querySelector('h1')?.textContent).toBe('TwixT');
     expect(buttonWith('Start')).toBeDefined();
     expect(host.querySelector('svg.board')).toBeNull();
@@ -80,10 +94,60 @@ describe('the app shell', () => {
   });
 });
 
+describe('the home screen', () => {
+  function segButton(label: string): HTMLButtonElement | undefined {
+    return [...host.querySelectorAll('.seg-row button')].find(
+      (button) => button.textContent?.trim() === label,
+    ) as HTMLButtonElement | undefined;
+  }
+
+  it('starts a local game on the board size picked in the card', () => {
+    click(segButton('12'));
+    expect(segButton('12')?.getAttribute('aria-checked')).toBe('true');
+
+    startLocalGame();
+    // 12x12 minus the four removed corners.
+    expect(host.querySelectorAll('.target-cell')).toHaveLength(12 * 12 - 4);
+  });
+
+  it('replays a pasted transcript, links and all', () => {
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Game transcript"]')!;
+    input.value = '24 F6 swap H7 G8 -F6/G8';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+
+    click(buttonWith('Load'));
+
+    expect(host.querySelectorAll('.peg')).toHaveLength(3);
+    // The transcript removes the link the engine would otherwise draw itself.
+    expect(host.querySelectorAll('.link')).toHaveLength(0);
+    expect(host.querySelector('.moves ol')?.textContent).toContain('swap');
+  });
+
+  it('explains a transcript it cannot read instead of loading it', () => {
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Game transcript"]')!;
+    input.value = '24 F6 castle';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+
+    click(buttonWith('Load'));
+
+    expect(host.querySelector('svg.board')).toBeNull();
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/is not a move/);
+  });
+});
+
 describe('placing pegs', () => {
   beforeEach(startLocalGame);
 
+  it('commits the moment a peg is placed by default', () => {
+    click(cell(5, 5));
+    expect(host.querySelectorAll('.peg')).toHaveLength(1);
+    expect(host.querySelectorAll('.peg.pending')).toHaveLength(0);
+  });
+
   it('shows a peg provisionally and commits it on confirm', () => {
+    enableConfirmation();
     click(cell(5, 5));
     expect(host.querySelectorAll('.peg.pending')).toHaveLength(1);
 
@@ -93,6 +157,7 @@ describe('placing pegs', () => {
   });
 
   it('discards the peg on cancel', () => {
+    enableConfirmation();
     click(cell(5, 5));
     click(buttonWith('Cancel'));
     expect(host.querySelectorAll('.peg')).toHaveLength(0);
