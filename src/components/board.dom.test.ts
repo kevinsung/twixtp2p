@@ -1,0 +1,181 @@
+// @vitest-environment jsdom
+
+/**
+ * End-to-end check of the local play loop against a real DOM.
+ *
+ * The engine tests prove the rules; this proves the parts that only exist once
+ * the app is running — that clicking a hole places a peg, that confirming
+ * commits it, that the board draws links, and that the pie rule and win
+ * detection surface in the interface rather than only in the model.
+ */
+
+import { flushSync, mount, unmount } from 'svelte';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { idx } from '../lib/engine/board';
+import { cellToNotation } from '../lib/engine/notation';
+import App from '../App.svelte';
+
+const SIZE = 24;
+
+let host: HTMLDivElement;
+let app: Record<string, unknown> | null = null;
+
+beforeEach(() => {
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  app = mount(App, { target: host }) as Record<string, unknown>;
+  flushSync();
+});
+
+afterEach(() => {
+  if (app) void unmount(app);
+  app = null;
+  host.remove();
+  localStorage.clear();
+});
+
+function click(element: Element | null | undefined): void {
+  if (!element) throw new Error('tried to click an element that is not there');
+  (element as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  flushSync();
+}
+
+function buttonWith(text: string): HTMLButtonElement | undefined {
+  return [...host.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === text,
+  ) as HTMLButtonElement | undefined;
+}
+
+/** Hit targets carry the cell's notation as their accessible name. */
+function cell(r: number, c: number): Element | null {
+  return host.querySelector(`.target-cell[aria-label="${cellToNotation(SIZE, idx(SIZE, r, c))}"]`);
+}
+
+function startLocalGame(): void {
+  click(buttonWith('Start'));
+}
+
+function play(r: number, c: number): void {
+  click(cell(r, c));
+  const confirm = buttonWith('Confirm move');
+  if (confirm) click(confirm);
+}
+
+describe('the app shell', () => {
+  it('opens on the menu', () => {
+    expect(host.querySelector('h1')?.textContent).toBe('TwixT');
+    expect(buttonWith('Start')).toBeDefined();
+    expect(host.querySelector('svg.board')).toBeNull();
+  });
+
+  it('starts a local game and draws a full board', () => {
+    startLocalGame();
+
+    const board = host.querySelector('svg.board');
+    expect(board).not.toBeNull();
+    // 24x24 minus the four removed corners.
+    expect(host.querySelectorAll('.target-cell')).toHaveLength(SIZE * SIZE - 4);
+    expect(host.querySelectorAll('.peg')).toHaveLength(0);
+  });
+});
+
+describe('placing pegs', () => {
+  beforeEach(startLocalGame);
+
+  it('shows a peg provisionally and commits it on confirm', () => {
+    click(cell(5, 5));
+    expect(host.querySelectorAll('.peg.pending')).toHaveLength(1);
+
+    click(buttonWith('Confirm move'));
+    expect(host.querySelectorAll('.peg')).toHaveLength(1);
+    expect(host.querySelectorAll('.peg.pending')).toHaveLength(0);
+  });
+
+  it('discards the peg on cancel', () => {
+    click(cell(5, 5));
+    click(buttonWith('Cancel'));
+    expect(host.querySelectorAll('.peg')).toHaveLength(0);
+  });
+
+  it('refuses a hole on the opponent border line and says why', () => {
+    // Red connects top to bottom, so the left column is not theirs to use.
+    click(cell(5, 0));
+    expect(host.querySelectorAll('.peg.pending')).toHaveLength(0);
+    expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/border line/);
+  });
+
+  it('draws a link between two friendly pegs a knight move apart', () => {
+    play(5, 5); // Red
+    play(9, 9); // Black, out of the way
+    play(6, 7); // Red, a knight's move from (5,5)
+
+    expect(host.querySelectorAll('.link')).toHaveLength(1);
+  });
+
+  it('records moves in the sidebar in board notation', () => {
+    play(5, 5);
+    const moves = host.querySelector('.moves ol')?.textContent ?? '';
+    expect(moves).toContain(cellToNotation(SIZE, idx(SIZE, 5, 5)));
+  });
+});
+
+describe('turn flow', () => {
+  beforeEach(startLocalGame);
+
+  it('alternates sides', () => {
+    const statusText = (): string => host.querySelector('.status p')?.textContent ?? '';
+
+    expect(statusText()).toMatch(/Red to move/);
+    play(5, 5);
+    expect(statusText()).toMatch(/Black to move/);
+    play(9, 9);
+    expect(statusText()).toMatch(/Red to move/);
+  });
+
+  it('offers the pie rule only after the first peg', () => {
+    expect(buttonWith('Swap sides')).toBeUndefined();
+
+    play(5, 5);
+    expect(buttonWith('Swap sides')).toBeDefined();
+
+    click(buttonWith('Swap sides'));
+    expect(buttonWith('Swap sides')).toBeUndefined();
+    // The swap spends Black's turn, so Red — now the opener's opponent — moves.
+    expect(host.querySelector('.moves ol')?.textContent).toContain('swap');
+  });
+
+  it('undoes the last committed move', () => {
+    play(5, 5);
+    play(9, 9);
+    expect(host.querySelectorAll('.peg')).toHaveLength(2);
+
+    click(buttonWith('Undo'));
+    expect(host.querySelectorAll('.peg')).toHaveLength(1);
+  });
+});
+
+describe('winning', () => {
+  it('announces a connection across the board', () => {
+    startLocalGame();
+
+    // Red walks a knight's-move ladder from the top row to the bottom row,
+    // while Black plays harmlessly down its own left column.
+    const ladder: Array<[number, number]> = [[0, 5]];
+    let r = 0;
+    let c = 5;
+    while (r < SIZE - 1) {
+      const step = Math.min(2, SIZE - 1 - r);
+      r += step;
+      c += step === 2 ? 1 : 2;
+      ladder.push([r, c]);
+    }
+
+    ladder.forEach(([lr, lc], i) => {
+      play(lr, lc);
+      if (i < ladder.length - 1) play(2 + i, 0); // Black filler
+    });
+
+    expect(host.querySelector('.status p')?.textContent).toMatch(/Red wins by connection/);
+  });
+});
