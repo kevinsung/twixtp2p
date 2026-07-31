@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { DARK, LIGHT, idx } from '../engine/board';
+import { DARK, EMPTY, LIGHT, idx, type Seat } from '../engine/board';
 import {
   applyMove,
   createGame,
@@ -62,7 +62,7 @@ function pair(): [Loopback, Loopback] {
 /** A plain implementation of the interface the session depends on. */
 class TestGame implements GameHost {
   committed: GameState;
-  myPlayer: 0 | 1 | null = null;
+  mySeat: Seat | null = null;
   onCommit: ((move: GameMove) => void) | null = null;
 
   constructor(size: number) {
@@ -112,7 +112,7 @@ const noTimers = {
   clearInterval: () => {},
 };
 
-function connect(options?: { hostPlayer?: 0 | 1; guestSize?: number }): Rig {
+function connect(options?: { hostSeat?: Seat; guestSize?: number }): Rig {
   const [hostWire, guestWire] = pair();
   const host = new TestGame(SIZE);
   const guest = new TestGame(options?.guestSize ?? SIZE);
@@ -121,14 +121,14 @@ function connect(options?: { hostPlayer?: 0 | 1; guestSize?: number }): Rig {
     isHost: true,
     name: 'Host',
     size: SIZE,
-    hostPlayer: options?.hostPlayer ?? 0,
+    hostSeat: options?.hostSeat ?? 0,
     ...noTimers,
   });
   const guestSession = new Session(guest, guestWire, {
     isHost: false,
     name: 'Guest',
     size: options?.guestSize ?? SIZE,
-    hostPlayer: 0,
+    hostSeat: 0,
     ...noTimers,
   });
 
@@ -141,7 +141,7 @@ function connect(options?: { hostPlayer?: 0 | 1; guestSize?: number }): Rig {
 describe('protocol decoding', () => {
   it('round-trips every message type', () => {
     const messages = [
-      { t: 'hello', v: 1, size: SIZE, yourPlayer: 1, name: 'A', moves: [] },
+      { t: 'hello', v: 1, size: SIZE, yourSeat: 1, name: 'A', moves: [] },
       { t: 'hi', v: 1, name: 'B', moves: [] },
       { t: 'move', ply: 0, move: { t: 'turn', place: idx(SIZE, 3, 3), linkOps: [] }, hash: 7 },
       { t: 'undoRequest', toPly: 2 },
@@ -163,10 +163,10 @@ describe('protocol decoding', () => {
     expect(decode('null', SIZE)).toBeNull();
     expect(decode(JSON.stringify({ t: 'nope' }), SIZE)).toBeNull();
     expect(decode(JSON.stringify({ t: 'move', ply: -1 }), SIZE)).toBeNull();
-    expect(decode(JSON.stringify({ t: 'hello', v: 1, size: 4, yourPlayer: 0, moves: [] }), SIZE))
+    expect(decode(JSON.stringify({ t: 'hello', v: 1, size: 4, yourSeat: 0, moves: [] }), SIZE))
       .toBeNull();
     expect(
-      decode(JSON.stringify({ t: 'hello', v: 1, size: SIZE, yourPlayer: 5, moves: [] }), SIZE),
+      decode(JSON.stringify({ t: 'hello', v: 1, size: SIZE, yourSeat: 5, moves: [] }), SIZE),
     ).toBeNull();
     // A move list longer than the board could ever allow.
     expect(
@@ -199,8 +199,8 @@ describe('handshake', () => {
     expect(rig.guestSession.view.status).toBe('ready');
     expect(rig.hostSession.view.opponentName).toBe('Guest');
     expect(rig.guestSession.view.opponentName).toBe('Host');
-    expect(rig.host.myPlayer).toBe(0);
-    expect(rig.guest.myPlayer).toBe(1);
+    expect(rig.host.mySeat).toBe(0);
+    expect(rig.guest.mySeat).toBe(1);
   });
 
   it('makes the guest adopt the host board size', () => {
@@ -210,9 +210,9 @@ describe('handshake', () => {
   });
 
   it('honours the host choosing the second seat', () => {
-    const rig = connect({ hostPlayer: 1 });
-    expect(rig.host.myPlayer).toBe(1);
-    expect(rig.guest.myPlayer).toBe(0);
+    const rig = connect({ hostSeat: 1 });
+    expect(rig.host.mySeat).toBe(1);
+    expect(rig.guest.mySeat).toBe(0);
   });
 
   it('still handshakes when the peer arrived before the session was listening', () => {
@@ -229,20 +229,20 @@ describe('handshake', () => {
       isHost: false,
       name: 'Guest',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
     const hostSession = new Session(host, hostWire, {
       isHost: true,
       name: 'Host',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
 
     expect(hostSession.view.status).toBe('ready');
     expect(guestSession.view.status).toBe('ready');
-    expect(guest.myPlayer).toBe(1);
+    expect(guest.mySeat).toBe(1);
   });
 
   it('refuses a peer running a different protocol version', () => {
@@ -252,7 +252,7 @@ describe('handshake', () => {
       isHost: false,
       name: 'Guest',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
     guestWire.onOpen?.();
@@ -262,7 +262,7 @@ describe('handshake', () => {
         t: 'hello',
         v: PROTOCOL_VERSION + 1,
         size: SIZE,
-        yourPlayer: 1,
+        yourSeat: 1,
         name: 'Future',
         moves: [],
       }),
@@ -314,14 +314,17 @@ describe('move exchange', () => {
     expect(stateHash(rig.host.committed)).toBe(stateHash(rig.guest.committed));
   });
 
-  it('follows the players through a pie-rule swap', () => {
-    rig.host.place(5, 5);
+  it('carries a pie-rule swap to both peers', () => {
+    rig.host.place(4, 6);
     rig.guest.play({ t: 'swap' });
 
-    expect(rig.host.committed.swapped).toBe(true);
-    expect(rig.guest.committed.swapped).toBe(true);
-    // Seats traded, so the host — player 0 — is now DARK and on move.
-    expect(rig.host.committed.toMove).toBe(DARK);
+    // The opening is reflected across the diagonal and becomes the guest's.
+    // Nobody changes seats, so it is the host — LIGHT — to move again.
+    for (const game of [rig.host.committed, rig.guest.committed]) {
+      expect(game.pegs[idx(SIZE, 4, 6)]).toBe(EMPTY);
+      expect(game.pegs[idx(SIZE, 6, 4)]).toBe(DARK);
+      expect(game.toMove).toBe(LIGHT);
+    }
     expect(stateHash(rig.host.committed)).toBe(stateHash(rig.guest.committed));
   });
 
@@ -483,14 +486,14 @@ describe('reconnecting mid-game', () => {
       isHost: true,
       name: 'Host',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
     const guestSession2 = new Session(staleGuest, guestWire2, {
       isHost: false,
       name: 'Guest',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
 
@@ -514,14 +517,14 @@ describe('reconnecting mid-game', () => {
       isHost: true,
       name: 'Host',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
     const guestSession = new Session(guestGame, guestWire, {
       isHost: false,
       name: 'Guest',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
 
@@ -548,14 +551,14 @@ describe('reconnecting mid-game', () => {
       isHost: true,
       name: 'Host',
       size: SIZE,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
     const guestSession = new Session(guestGame, guestWire, {
       isHost: false,
       name: 'Guest',
       size: 24,
-      hostPlayer: 0,
+      hostSeat: 0,
       ...noTimers,
     });
 

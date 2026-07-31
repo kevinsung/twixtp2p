@@ -58,13 +58,13 @@
 
   function startLocal(size: number): void {
     game.reset(size);
-    game.myPlayer = null;
+    game.mySeat = null;
     isOnline = false;
     screen = 'game';
   }
 
   function startLoaded(): void {
-    game.myPlayer = null;
+    game.mySeat = null;
     isOnline = false;
     screen = 'game';
   }
@@ -72,7 +72,7 @@
   function leaveGame(): void {
     online.leave();
     isOnline = false;
-    game.myPlayer = null;
+    game.mySeat = null;
     screen = 'home';
     if (typeof location !== 'undefined' && location.hash) {
       history.replaceState(null, '', location.pathname + location.search);

@@ -8,7 +8,7 @@
    * blocked — so it lives in a disclosure that opens itself after a relay
    * attempt has failed.
    */
-  import { BOARD_SIZES, DEFAULT_SIZE, seatName } from '../lib/engine/board';
+  import { BOARD_SIZES, DEFAULT_SIZE, seatName, type Seat } from '../lib/engine/board';
   import { parseTranscript } from '../lib/engine/notation';
   import { isValidCode, normalizeCode } from '../lib/net/roomcode';
   import type { GameController } from '../lib/stores/game.svelte';
@@ -56,9 +56,9 @@
   }
 
   function createRoom(): void {
-    const hostPlayer: 0 | 1 = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
+    const hostSeat: Seat = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
     game.reset(roomSize);
-    void run(() => online.hostViaRelay(game, { name: '', size: roomSize, hostPlayer }));
+    void run(() => online.hostViaRelay(game, { name: '', size: roomSize, hostSeat }));
   }
 
   function joinRoom(): void {
@@ -66,9 +66,9 @@
   }
 
   function createInvitation(): void {
-    const hostPlayer: 0 | 1 = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
+    const hostSeat: Seat = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
     game.reset(roomSize);
-    void run(() => online.hostManually(game, { name: '', size: roomSize, hostPlayer }));
+    void run(() => online.hostManually(game, { name: '', size: roomSize, hostSeat }));
   }
 
   function answerInvitation(): void {

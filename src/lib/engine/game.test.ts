@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DARK, LIGHT, canPlaceAt, idx, isHole, type Seat } from './board';
+import { DARK, EMPTY, LIGHT, canPlaceAt, idx, isHole, type Seat } from './board';
 import {
   applyMove,
   autoLinkTargets,
@@ -10,7 +10,6 @@ import {
   linkCandidates,
   placementError,
   replay,
-  seatOfPlayer,
   stateHash,
   truncateTo,
   type GameMove,
@@ -254,20 +253,32 @@ describe('the pie rule', () => {
     expect(late.ok).toBe(false);
   });
 
-  it('trades seats without touching the board and leaves DARK to move', () => {
-    const afterOne = place(createGame(SIZE), 3, 3);
+  it('reflects the opening across the diagonal and hands the turn back', () => {
+    const afterOne = place(createGame(SIZE), 4, 6);
     const swapped = applyMove(afterOne, { t: 'swap' });
     expect(swapped.ok).toBe(true);
     if (!swapped.ok) return;
 
-    expect(swapped.state.swapped).toBe(true);
-    expect(swapped.state.toMove).toBe(DARK);
-    expect([...swapped.state.pegs]).toEqual([...afterOne.pegs]);
-
-    // The player who opened the game now sits in the DARK seat.
-    expect(seatOfPlayer(true, 0)).toBe(DARK);
-    expect(seatOfPlayer(true, 1)).toBe(LIGHT);
+    // Nobody changes colour: the peg moves and becomes DARK's, so LIGHT — who
+    // opened — is on move again and seats keep alternating.
+    expect(swapped.state.pegs[idx(SIZE, 4, 6)]).toBe(EMPTY);
+    expect(swapped.state.pegs[idx(SIZE, 6, 4)]).toBe(DARK);
+    expect(swapped.state.toMove).toBe(LIGHT);
+    expect(swapped.state.lastPlace).toBe(idx(SIZE, 6, 4));
     expect(canSwap(swapped.state)).toBe(false);
+  });
+
+  it('leaves an opening on the diagonal in place and only recolours it', () => {
+    const afterOne = place(createGame(SIZE), 5, 5);
+    const swapped = applyMove(afterOne, { t: 'swap' });
+    expect(swapped.ok).toBe(true);
+    if (!swapped.ok) return;
+
+    // Source and destination coincide, so the order of the two writes decides
+    // whether a peg survives at all.
+    expect(swapped.state.pegs[idx(SIZE, 5, 5)]).toBe(DARK);
+    expect(swapped.state.pegs.filter((peg) => peg !== EMPTY)).toHaveLength(1);
+    expect(swapped.state.toMove).toBe(LIGHT);
   });
 });
 

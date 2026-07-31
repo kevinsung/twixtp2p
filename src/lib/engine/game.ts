@@ -25,6 +25,7 @@ import {
   isHoleCell,
   isKnightMove,
   otherSeat,
+  reflectCell,
   rowOf,
 } from './board';
 import { LinkSet } from './crossing';
@@ -56,8 +57,6 @@ export interface GameState {
   readonly links: LinkSet;
   readonly moves: GameMove[];
   readonly toMove: Seat;
-  /** True once the pie rule has been exercised. Remaps players to seats. */
-  readonly swapped: boolean;
   readonly result: Result | null;
   readonly lastPlace: number | null;
 }
@@ -77,23 +76,9 @@ export function createGame(size: number): GameState {
     links: new LinkSet(size),
     moves: [],
     toMove: LIGHT,
-    swapped: false,
     result: null,
     lastPlace: null,
   };
-}
-
-/**
- * Which seat a player sits in. Player 0 is whoever started as LIGHT; the pie
- * rule swaps the mapping without touching the board.
- */
-export function seatOfPlayer(swapped: boolean, player: 0 | 1): Seat {
-  return (swapped ? 1 - player : player) as Seat;
-}
-
-/** Inverse of `seatOfPlayer` — it is its own inverse. */
-export function playerOfSeat(swapped: boolean, seat: Seat): 0 | 1 {
-  return (swapped ? 1 - seat : seat) as 0 | 1;
 }
 
 export interface LinkCandidate {
@@ -266,7 +251,6 @@ function applyTurn(state: GameState, move: Extract<GameMove, { t: 'turn' }>): Ap
     links,
     moves,
     toMove: next,
-    swapped: state.swapped,
     result,
     lastPlace: move.place,
   };
@@ -282,24 +266,31 @@ function applyTurn(state: GameState, move: Extract<GameMove, { t: 'turn' }>): Ap
 
 /** True if the pie rule is available right now. */
 export function canSwap(state: GameState): boolean {
-  return (
-    state.result === null &&
-    state.moves.length === 1 &&
-    state.moves[0]!.t === 'turn' &&
-    !state.swapped
-  );
+  return state.result === null && state.moves.length === 1 && state.moves[0]!.t === 'turn';
 }
 
 function applySwap(state: GameState): ApplyResult {
   if (!canSwap(state)) {
     return { ok: false, error: 'the swap is only available immediately after the first peg' };
   }
-  // The board is untouched; only the players' seats trade. The second player
-  // spends their turn on the swap, so it remains DARK to move — which is now
-  // the player who opened the game.
+
+  // Nobody changes colour: the opening peg is reflected across the main
+  // diagonal and becomes DARK's. That transpose is exactly the symmetry
+  // exchanging the two seats' roles, so the responder inherits a mirror of the
+  // position the opener built. `canSwap` guarantees a lone peg with no links,
+  // so the whole reflection is a two-cell edit. Order matters when the opening
+  // sits on the diagonal and the two cells coincide.
+  const from = (state.moves[0] as Extract<GameMove, { t: 'turn' }>).place;
+  const to = reflectCell(state.size, from);
+
+  const { pegs, links, moves } = cloneState(state);
+  pegs[from] = EMPTY;
+  pegs[to] = DARK;
+  moves.push({ t: 'swap' });
+
   return {
     ok: true,
-    state: { ...state, swapped: true, moves: [...state.moves, { t: 'swap' }] },
+    state: { ...state, pegs, links, moves, toMove: otherSeat(state.toMove), lastPlace: to },
   };
 }
 
@@ -377,7 +368,6 @@ export function stateHash(state: GameState): number {
   const parts: string[] = [
     String(state.size),
     String(state.toMove),
-    state.swapped ? '1' : '0',
     state.result ? JSON.stringify(state.result) : '-',
   ];
 

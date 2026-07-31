@@ -158,7 +158,7 @@ export function parseTranscript(text: string): ParseResult {
 
   const moves: GameMove[] = [];
   // The seat that would be resigning, for a bare `resign` in a hand-written
-  // transcript. Mirrors the engine: a placement passes the turn, a swap does not.
+  // transcript. Mirrors the engine: a placement and a swap each pass the turn.
   let toMove: Seat = LIGHT;
   /** The turn link edits currently attach to. */
   let open: Extract<GameMove, { t: 'turn' }> | null = null;
@@ -189,6 +189,7 @@ export function parseTranscript(text: string): ParseResult {
 
     if (word === 'swap') {
       moves.push({ t: 'swap' });
+      toMove = otherSeat(toMove);
       open = null;
       continue;
     }

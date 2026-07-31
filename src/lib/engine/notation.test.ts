@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DARK, LIGHT, idx, isHoleCell } from './board';
+import { DARK, EMPTY, LIGHT, idx, isHoleCell } from './board';
 import { applyMove, createGame, replay, stateHash, type GameState } from './game';
 import {
   cellToNotation,
@@ -119,7 +119,29 @@ describe('transcripts', () => {
     expect(parsed.size).toBe(SIZE);
     const rebuilt = replay(parsed.size, parsed.moves);
     expect(stateHash(rebuilt)).toBe(stateHash(state));
-    expect(rebuilt.swapped).toBe(true);
+    expect(rebuilt.moves).toEqual(state.moves);
+  });
+
+  it('round-trips a swap that actually moves the peg', () => {
+    // F6 sits on the main diagonal, so the game above never exercises the
+    // reflection. E7 is off it: the peg lands on G5 and the transcript has to
+    // survive that.
+    let state = createGame(SIZE);
+    state = play(state, 6, 4);
+    state = move(state, { t: 'swap' });
+    state = play(state, 3, 3);
+
+    const text = serializeTranscript(state);
+    expect(text).toBe('24 E7 swap D4');
+
+    const parsed = parseTranscript(text);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const rebuilt = replay(parsed.size, parsed.moves);
+    expect(rebuilt.pegs[idx(SIZE, 6, 4)]).toBe(EMPTY);
+    expect(rebuilt.pegs[idx(SIZE, 4, 6)]).toBe(DARK);
+    expect(stateHash(rebuilt)).toBe(stateHash(state));
     expect(rebuilt.moves).toEqual(state.moves);
   });
 

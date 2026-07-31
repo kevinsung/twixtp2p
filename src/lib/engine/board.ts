@@ -115,6 +115,18 @@ export function borderSide(
   return null;
 }
 
+/**
+ * A cell reflected across the main diagonal.
+ *
+ * Transposing exchanges the two seats' roles: LIGHT's top/bottom rows become
+ * DARK's left/right columns, corners map to corners, and a cell legal for one
+ * seat is always legal for the other. That is what lets the pie rule be a
+ * reflection rather than a seat trade.
+ */
+export function reflectCell(size: number, cell: number): number {
+  return idx(size, colOf(size, cell), rowOf(size, cell));
+}
+
 /** True if the two cells are exactly a knight's move apart. */
 export function isKnightMove(size: number, a: number, b: number): boolean {
   const dr = Math.abs(rowOf(size, a) - rowOf(size, b));

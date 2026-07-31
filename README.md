@@ -38,8 +38,9 @@ under Settings → Pages → Source: **GitHub Actions**.
 - Placing a peg links it to friendly pegs a knight's move away — but **a link may never cross
   another link, of either colour**. Blocking with links is the core of the game.
 - You may remove your own links on your turn, never your opponent's.
-- **Pie rule**: immediately after the first peg, the second player may swap sides instead of
-  replying.
+- **Pie rule**: immediately after the first peg, Black may play `swap` instead of replying. The
+  opening peg is mirrored across the main diagonal and becomes Black's, so Black takes over a
+  strong opening rather than answering it. Nobody changes colour — Red still moves next.
 - Connecting your two border lines wins. A board that fills with neither side connected is a draw.
 
 ### Playing a turn

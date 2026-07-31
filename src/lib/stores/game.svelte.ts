@@ -19,7 +19,6 @@ import {
   createGame,
   placementError,
   replay,
-  seatOfPlayer,
   truncateTo,
   type GameMove,
   type GameState,
@@ -39,19 +38,11 @@ export class GameController {
   /** Transient explanation of the last rejected action. */
   message = $state<string | null>(null);
 
-  /**
-   * Which player this client is, or null for local play where it moves both.
-   *
-   * Deliberately a *player* rather than a seat: the pie rule trades seats
-   * mid-game, so a fixed seat would leave both sides controlling the wrong
-   * colour after a swap.
-   */
-  myPlayer = $state.raw<0 | 1 | null>(null);
+  /** Which seat this client plays, or null for local play where it moves both. */
+  mySeat = $state.raw<Seat | null>(null);
 
-  /** Seats this client may move for, following the players through a swap. */
-  control = $derived<SeatControl>(
-    this.myPlayer === null ? 'both' : seatOfPlayer(this.committed.swapped, this.myPlayer),
-  );
+  /** Seats this client may move for. */
+  control = $derived<SeatControl>(this.mySeat ?? 'both');
 
   /** Commit immediately on placement instead of waiting for confirmation. */
   skipConfirmation = $state(false);
@@ -81,9 +72,9 @@ export class GameController {
     return this.control === 'both' || this.control === this.committed.toMove;
   });
 
-  canSwapNow = $derived.by(
-    () => canSwap(this.committed) && this.pending === null && this.isMyTurn,
-  );
+  // A pending placement does not hide the swap: `commit` clears it, so swapping
+  // simply discards the reply you were trying out.
+  canSwapNow = $derived.by(() => canSwap(this.committed) && this.isMyTurn);
 
   reset(size: number): void {
     this.committed = createGame(size);

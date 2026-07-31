@@ -13,8 +13,9 @@
  * the position. A move failing any of those is reported, never applied.
  */
 
+import { otherSeat, type Seat } from '../engine/board';
 import type { GameMove, GameState } from '../engine/game';
-import { seatOfPlayer, stateHash } from '../engine/game';
+import { stateHash } from '../engine/game';
 import { PROTOCOL_VERSION, decode, encode, isPrefixOf, type Message } from './protocol';
 
 export interface Transport {
@@ -37,7 +38,7 @@ export interface Transport {
 /** The part of the game controller a session needs. */
 export interface GameHost {
   readonly committed: GameState;
-  myPlayer: 0 | 1 | null;
+  mySeat: Seat | null;
   onCommit: ((move: GameMove) => void) | null;
   loadMoves(size: number, moves: readonly GameMove[]): void;
   applyRemote(move: GameMove): { ok: true } | { ok: false; error: string };
@@ -51,7 +52,7 @@ export interface SessionOptions {
   name: string;
   /** Host only — the guest adopts these from the handshake. */
   size: number;
-  hostPlayer: 0 | 1;
+  hostSeat: Seat;
   pingIntervalMs?: number;
   now?: () => number;
   setInterval?: (fn: () => void, ms: number) => unknown;
@@ -80,7 +81,7 @@ export class Session {
   private readonly game: GameHost;
   private readonly transport: Transport;
   private readonly options: Required<
-    Pick<SessionOptions, 'isHost' | 'name' | 'hostPlayer' | 'pingIntervalMs'>
+    Pick<SessionOptions, 'isHost' | 'name' | 'hostSeat' | 'pingIntervalMs'>
   > & { now: () => number };
   private readonly setIntervalFn: (fn: () => void, ms: number) => unknown;
   private readonly clearIntervalFn: (handle: unknown) => void;
@@ -111,7 +112,7 @@ export class Session {
     this.options = {
       isHost: options.isHost,
       name: options.name,
-      hostPlayer: options.hostPlayer,
+      hostSeat: options.hostSeat,
       pingIntervalMs: options.pingIntervalMs ?? 5000,
       now: options.now ?? Date.now,
     };
@@ -151,12 +152,12 @@ export class Session {
   private handleOpen(): void {
     this.patch({ status: 'handshaking' });
     if (this.options.isHost) {
-      this.game.myPlayer = this.options.hostPlayer;
+      this.game.mySeat = this.options.hostSeat;
       this.send({
         t: 'hello',
         v: PROTOCOL_VERSION,
         size: this.size,
-        yourPlayer: (1 - this.options.hostPlayer) as 0 | 1,
+        yourSeat: otherSeat(this.options.hostSeat),
         name: this.options.name,
         moves: [...this.game.committed.moves],
       });
@@ -181,9 +182,9 @@ export class Session {
     this.pingHandle = null;
   }
 
-  private get remotePlayer(): 0 | 1 {
-    const mine = this.game.myPlayer;
-    return mine === 1 ? 0 : 1;
+  private get remoteSeat(): Seat {
+    const mine = this.game.mySeat;
+    return mine === null ? 1 : otherSeat(mine);
   }
 
   private sendOwnMove(move: GameMove): void {
@@ -251,7 +252,7 @@ export class Session {
     }
 
     this.size = message.size;
-    this.game.myPlayer = message.yourPlayer;
+    this.game.mySeat = message.yourSeat;
 
     if (this.game.committed.moves.length === 0) {
       // Fresh guest: take the host's parameters wholesale. This is also what
@@ -381,7 +382,7 @@ export class Session {
   /** True if the move is one the remote player is entitled to make right now. */
   private remoteMayPlay(move: GameMove): boolean {
     const state = this.game.committed;
-    const theirSeat = seatOfPlayer(state.swapped, this.remotePlayer);
+    const theirSeat = this.remoteSeat;
 
     switch (move.t) {
       case 'turn':

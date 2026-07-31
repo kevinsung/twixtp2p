@@ -6,6 +6,7 @@
  * and owns the lifecycle of whichever transport was chosen.
  */
 
+import type { Seat } from '../engine/board';
 import {
   answerManualOffer,
   createManualOffer,
@@ -61,7 +62,7 @@ export class OnlineGame {
   /** Host a game over public relays. Returns the code to share. */
   async hostViaRelay(
     game: GameController,
-    options: { name: string; size: number; hostPlayer: 0 | 1 },
+    options: { name: string; size: number; hostSeat: Seat },
   ): Promise<void> {
     const code = generateCode();
     await this.startRelay(game, code, { ...options, isHost: true });
@@ -70,14 +71,14 @@ export class OnlineGame {
 
   /** Join a game over public relays using a code shared with you. */
   async joinViaRelay(game: GameController, code: string, name: string): Promise<void> {
-    await this.startRelay(game, code, { name, size: game.size, hostPlayer: 0, isHost: false });
+    await this.startRelay(game, code, { name, size: game.size, hostSeat: 0, isHost: false });
     this.code = code;
   }
 
   private async startRelay(
     game: GameController,
     code: string,
-    options: { name: string; size: number; hostPlayer: 0 | 1; isHost: boolean },
+    options: { name: string; size: number; hostSeat: Seat; isHost: boolean },
   ): Promise<void> {
     this.reset();
     this.hosting = options.isHost;
@@ -97,7 +98,7 @@ export class OnlineGame {
   /** Host a game with no relay at all: produce an offer to send by hand. */
   async hostManually(
     game: GameController,
-    options: { name: string; size: number; hostPlayer: 0 | 1 },
+    options: { name: string; size: number; hostSeat: Seat },
   ): Promise<void> {
     this.reset();
     this.hosting = true;
@@ -154,7 +155,7 @@ export class OnlineGame {
       this.attach(game, answer.transport, {
         name,
         size: game.size,
-        hostPlayer: 0,
+        hostSeat: 0,
         isHost: false,
       });
       return answer.code;
@@ -167,7 +168,7 @@ export class OnlineGame {
   private attach(
     game: GameController,
     transport: Transport | ManualTransport,
-    options: { name: string; size: number; hostPlayer: 0 | 1; isHost: boolean },
+    options: { name: string; size: number; hostSeat: Seat; isHost: boolean },
   ): void {
     this.transport = transport;
 
@@ -175,7 +176,7 @@ export class OnlineGame {
       isHost: options.isHost,
       name: options.name,
       size: options.size,
-      hostPlayer: options.hostPlayer,
+      hostSeat: options.hostSeat,
     });
 
     session.onUpdate = () => {

@@ -10,11 +10,16 @@
  * on the very next move instead of silently drifting.
  */
 
-import { MAX_SIZE, MIN_SIZE } from '../engine/board';
+import { MAX_SIZE, MIN_SIZE, type Seat } from '../engine/board';
 import type { GameMove } from '../engine/game';
 import { parseMove } from '../engine/notation';
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * 2: the pie rule became a diagonal reflection rather than a seat trade, so a
+ * swap now produces a different position. An older peer has to be turned away
+ * at the handshake instead of desyncing on the first hash comparison.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** Refuse absurd payloads before parsing them. */
 export const MAX_MESSAGE_BYTES = 256 * 1024;
@@ -27,7 +32,7 @@ export type Message =
       t: 'hello';
       v: number;
       size: number;
-      yourPlayer: 0 | 1;
+      yourSeat: Seat;
       name: string;
       moves: GameMove[];
     }
@@ -47,7 +52,7 @@ export function encode(message: Message): string {
   return JSON.stringify(message);
 }
 
-function isPlayer(value: unknown): value is 0 | 1 {
+function isSeat(value: unknown): value is Seat {
   return value === 0 || value === 1;
 }
 
@@ -109,14 +114,14 @@ export function decode(raw: string, agreedSize: number): Message | null {
     case 'hello': {
       if (typeof message.v !== 'number') return null;
       if (!isSize(message.size)) return null;
-      if (!isPlayer(message.yourPlayer)) return null;
+      if (!isSeat(message.yourSeat)) return null;
       const moves = parseMoves(message.size, message.moves);
       if (!moves) return null;
       return {
         t: 'hello',
         v: message.v,
         size: message.size,
-        yourPlayer: message.yourPlayer,
+        yourSeat: message.yourSeat,
         name: cleanName(message.name),
         moves,
       };

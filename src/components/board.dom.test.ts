@@ -70,6 +70,20 @@ function enableConfirmation(): void {
   flushSync();
 }
 
+/**
+ * The move list as [red, black] pairs, read from the columns themselves.
+ *
+ * Checking the text of `.ply.light` / `.ply.dark` rather than the whole list is
+ * the point: a ply landing in the wrong column renders in the wrong colour, and
+ * a substring match on the list would never notice.
+ */
+function plies(): string[][] {
+  return [...host.querySelectorAll('.moves ol li')].map((row) => [
+    row.querySelector('.ply.light')?.textContent?.trim() ?? '',
+    row.querySelector('.ply.dark')?.textContent?.trim() ?? '',
+  ]);
+}
+
 function play(r: number, c: number): void {
   click(cell(r, c));
   const confirm = buttonWith('Confirm move');
@@ -239,15 +253,51 @@ describe('turn flow', () => {
   });
 
   it('offers the pie rule only after the first peg', () => {
-    expect(buttonWith('Swap sides')).toBeUndefined();
+    expect(buttonWith('Swap')).toBeUndefined();
 
     play(5, 5);
-    expect(buttonWith('Swap sides')).toBeDefined();
+    expect(buttonWith('Swap')).toBeDefined();
 
-    click(buttonWith('Swap sides'));
-    expect(buttonWith('Swap sides')).toBeUndefined();
-    // The swap spends Black's turn, so Red — now the opener's opponent — moves.
-    expect(host.querySelector('.moves ol')?.textContent).toContain('swap');
+    click(buttonWith('Swap'));
+    expect(buttonWith('Swap')).toBeUndefined();
+
+    // F6 is on the main diagonal, so the peg stays put and only changes colour.
+    // The swap spends Black's turn, so it is Red to move again — and the two
+    // plies belong in their own colour's column.
+    expect(plies()).toEqual([['F6', 'swap']]);
+    expect(host.querySelector('.status p')?.textContent).toMatch(/Red to move/);
+  });
+
+  it('mirrors an off-diagonal opening across the board', () => {
+    play(6, 4); // E7
+
+    click(buttonWith('Swap'));
+
+    // Reflected onto G5, and still a single peg — Black's. Peg coordinates are
+    // the cell's column and row straight through.
+    const pegs = [...host.querySelectorAll('.peg')];
+    expect(pegs).toHaveLength(1);
+    expect(pegs[0]!.classList.contains('dark')).toBe(true);
+    expect([pegs[0]!.getAttribute('cx'), pegs[0]!.getAttribute('cy')]).toEqual(['6', '4']);
+
+    play(3, 3); // Red replies, so the list must open a second row
+    expect(plies()).toEqual([
+      ['E7', 'swap'],
+      ['D4', ''],
+    ]);
+  });
+
+  it('keeps the swap reachable while a reply is pending', () => {
+    enableConfirmation();
+    play(5, 5);
+
+    // Trying out a reply must not hide the pie rule with no way back but Cancel.
+    click(cell(9, 9));
+    expect(buttonWith('Confirm move')).toBeDefined();
+    expect(buttonWith('Swap')).toBeDefined();
+
+    click(buttonWith('Swap'));
+    expect(plies()).toEqual([['F6', 'swap']]);
   });
 
   it('undoes the last committed move', () => {

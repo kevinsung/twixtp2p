@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { LIGHT, seatName } from '../lib/engine/board';
+  import { DARK, LIGHT, otherSeat, seatName, type Seat } from '../lib/engine/board';
   import { formatMove, serializeTranscript } from '../lib/engine/notation';
   import { copyText } from '../lib/net/clipboard';
   import type { GameController } from '../lib/stores/game.svelte';
@@ -36,13 +36,27 @@
     return position.toMove === mySeat ? `Your move (${mover}).` : `Waiting for ${mover}…`;
   });
 
+  // Columns are seats, not ply parity: fold `toMove` across the list so the
+  // colours stay right whatever the move types are.
   let rows = $derived.by(() => {
     const out: Array<{ n: number; light: string; dark: string }> = [];
-    position.moves.forEach((move, i) => {
+    let toMove: Seat = LIGHT;
+    for (const move of position.moves) {
+      // A resignation may arrive on the opponent's turn, so it carries its own seat.
+      const seat = move.t === 'resign' ? move.seat : toMove;
       const text = formatMove(position.size, move);
-      if (i % 2 === 0) out.push({ n: i / 2 + 1, light: text, dark: '' });
-      else out[out.length - 1]!.dark = text;
-    });
+      const row = out[out.length - 1];
+      if (seat === LIGHT || !row || row.dark !== '') {
+        out.push({
+          n: out.length + 1,
+          light: seat === LIGHT ? text : '',
+          dark: seat === DARK ? text : '',
+        });
+      } else {
+        row.dark = text;
+      }
+      if (move.t === 'turn' || move.t === 'swap') toMove = otherSeat(toMove);
+    }
     return out;
   });
 
@@ -149,8 +163,9 @@
     {#if game.pending}
       <button class="primary" onclick={() => game.confirm()}>Confirm move</button>
       <button onclick={() => game.cancel()}>Cancel</button>
-    {:else if game.canSwapNow}
-      <button class="primary" onclick={() => game.swap()}>Swap sides</button>
+    {/if}
+    {#if game.canSwapNow}
+      <button class:primary={!game.pending} onclick={() => game.swap()}>Swap</button>
     {/if}
     <button onclick={undo} disabled={!canUndo}>
       {online ? 'Ask for takeback' : 'Undo'}
@@ -185,8 +200,8 @@
 
   {#if game.canSwapNow}
     <p class="hint">
-      The pie rule: you may take over your opponent's opening instead of replying to it. Available
-      only right now.
+      The pie rule: instead of replying, you may take the opening for yourself — the peg is mirrored
+      across the diagonal and becomes yours. Available only right now.
     </p>
   {/if}
 
