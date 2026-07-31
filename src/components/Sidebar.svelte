@@ -2,6 +2,7 @@
   import { DARK, LIGHT, otherSeat, seatName, type Seat } from '../lib/engine/board';
   import { formatMove, serializeTranscript } from '../lib/engine/notation';
   import { copyText } from '../lib/net/clipboard';
+  import type { BotController } from '../lib/stores/bot.svelte';
   import type { GameController } from '../lib/stores/game.svelte';
   import type { OnlineGame } from '../lib/stores/online.svelte';
   import { settings } from '../lib/stores/settings.svelte';
@@ -11,11 +12,13 @@
     game: GameController;
     /** Present only in peer-to-peer games. */
     online: OnlineGame | null;
+    /** Present only in games against the computer. */
+    bot?: BotController | null;
     /** Back to the home screen, local game or online alike. */
     onLeave: () => void;
   }
 
-  let { game, online, onLeave }: Props = $props();
+  let { game, online, bot = null, onLeave }: Props = $props();
 
   let position = $derived(game.committed);
   let mySeat = $derived(game.control === 'both' ? null : game.control);
@@ -32,6 +35,7 @@
       return mine ? `You win ${suffix}.` : `${who} wins ${suffix}.`;
     }
     const mover = seatName(position.toMove);
+    if (bot && position.toMove === bot.seat) return 'Computer is thinking…';
     if (mySeat === null) return `${mover} to move.`;
     return position.toMove === mySeat ? `Your move (${mover}).` : `Waiting for ${mover}…`;
   });
@@ -67,7 +71,10 @@
   );
 
   function undo(): void {
-    if (online) online.requestUndo();
+    // The computer has nothing to negotiate, so a takeback is unilateral — and
+    // it has to rewind past the reply as well as your own move.
+    if (bot) bot.undo();
+    else if (online) online.requestUndo();
     else game.undoLocal();
   }
 
@@ -92,6 +99,20 @@
     <button onclick={onLeave}>Leave</button>
     <ThemeButton />
   </div>
+
+  {#if bot}
+    <section class="connection live">
+      <span class="pip live"></span>
+      <span class="who">Computer</span>
+      {#if bot.thinking}
+        <span class="latency">Thinking…</span>
+      {/if}
+    </section>
+  {/if}
+
+  {#if bot?.error}
+    <p class="message" role="alert">{bot.error}</p>
+  {/if}
 
   {#if online && net}
     <section class="connection" class:live={net.status === 'ready'}>

@@ -20,17 +20,29 @@
     /** Open the manual disclosure — a relay attempt has already failed. */
     openManual?: boolean;
     onLocal: (size: number) => void;
+    /** Start a game against the built-in engine, with the human on `humanSeat`. */
+    onComputer: (size: number, humanSeat: Seat) => void;
     /** A connection attempt has started; show the waiting screen. */
     onConnecting: () => void;
     /** A transcript was replayed into the controller; show the board. */
     onLoaded: () => void;
   }
 
-  let { game, online, openManual = false, onLocal, onConnecting, onLoaded }: Props = $props();
+  let {
+    game,
+    online,
+    openManual = false,
+    onLocal,
+    onComputer,
+    onConnecting,
+    onLoaded,
+  }: Props = $props();
 
   type SeatChoice = 0 | 1 | 'random';
 
   let localSize = $state<number>(DEFAULT_SIZE);
+  let botSize = $state<number>(DEFAULT_SIZE);
+  let botSeatChoice = $state<SeatChoice>(0);
   let roomSize = $state<number>(DEFAULT_SIZE);
   let seatChoice = $state<SeatChoice>(0);
   let joinCode = $state('');
@@ -55,8 +67,16 @@
     }
   }
 
+  function pickSeat(choice: SeatChoice): Seat {
+    return choice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : choice;
+  }
+
+  function startComputer(): void {
+    onComputer(botSize, pickSeat(botSeatChoice));
+  }
+
   function createRoom(): void {
-    const hostSeat: Seat = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
+    const hostSeat = pickSeat(seatChoice);
     game.reset(roomSize);
     void run(() => online.hostViaRelay(game, { name: '', size: roomSize, hostSeat }));
   }
@@ -66,7 +86,7 @@
   }
 
   function createInvitation(): void {
-    const hostSeat: Seat = seatChoice === 'random' ? (Math.random() < 0.5 ? 0 : 1) : seatChoice;
+    const hostSeat = pickSeat(seatChoice);
     game.reset(roomSize);
     void run(() => online.hostManually(game, { name: '', size: roomSize, hostSeat }));
   }
@@ -158,6 +178,30 @@
         <button type="submit" class="primary" disabled={busy || !isValidCode(joinCode)}>Join</button>
       </div>
     </form>
+
+    <div class="card">
+      <h2>Play the computer</h2>
+      <p>An opponent that runs in this tab</p>
+      <div class="seg-row" role="radiogroup" aria-label="Board size for the computer game">
+        {#each BOARD_SIZES as size (size)}
+          <button role="radio" aria-checked={botSize === size} onclick={() => (botSize = size)}>
+            {size}
+          </button>
+        {/each}
+      </div>
+      <div class="seg-row" role="radiogroup" aria-label="You play against the computer">
+        {#each SEATS as seat (seat.label)}
+          <button
+            role="radio"
+            aria-checked={botSeatChoice === seat.value}
+            onclick={() => (botSeatChoice = seat.value)}
+          >
+            {seat.label}
+          </button>
+        {/each}
+      </div>
+      <button class="primary wide" onclick={startComputer}>Play</button>
+    </div>
 
     <div class="card">
       <h2>Load a game</h2>

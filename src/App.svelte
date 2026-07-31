@@ -4,18 +4,22 @@
   import Sidebar from './components/Sidebar.svelte';
   import ThemeButton from './components/ThemeButton.svelte';
   import Waiting from './components/Waiting.svelte';
+  import { otherSeat, type Seat } from './lib/engine/board';
   import { codeFromHash } from './lib/net/roomcode';
+  import { BotController } from './lib/stores/bot.svelte';
   import { GameController } from './lib/stores/game.svelte';
   import { OnlineGame } from './lib/stores/online.svelte';
   import { settings } from './lib/stores/settings.svelte';
 
   type Screen = 'home' | 'waiting' | 'game';
+  type Mode = 'local' | 'online' | 'computer';
 
   const game = new GameController();
   const online = new OnlineGame();
+  const bot = new BotController();
 
   let screen = $state<Screen>('home');
-  let isOnline = $state(false);
+  let mode = $state<Mode>('local');
   /** Sticky once a connection attempt has failed, so home reopens the manual fallback. */
   let relayFailed = $state(false);
 
@@ -51,27 +55,43 @@
   $effect(() => {
     if (online.phase === 'connected' && screen === 'waiting') {
       screen = 'game';
-      isOnline = true;
+      mode = 'online';
     }
     if (online.phase === 'error') relayFailed = true;
+  });
+
+  // Reading `committed` is what makes this reactive, and one subscription is
+  // all the bot needs: the same effect covers its opening move, its reply to
+  // every human move, and re-checking the position after a takeback.
+  $effect(() => {
+    if (mode === 'computer') bot.consider(game.committed);
   });
 
   function startLocal(size: number): void {
     game.reset(size);
     game.mySeat = null;
-    isOnline = false;
+    mode = 'local';
     screen = 'game';
   }
 
   function startLoaded(): void {
     game.mySeat = null;
-    isOnline = false;
+    mode = 'local';
+    screen = 'game';
+  }
+
+  function startComputer(size: number, humanSeat: Seat): void {
+    game.reset(size);
+    game.mySeat = humanSeat;
+    bot.attach(game, otherSeat(humanSeat));
+    mode = 'computer';
     screen = 'game';
   }
 
   function leaveGame(): void {
     online.leave();
-    isOnline = false;
+    bot.detach();
+    mode = 'local';
     game.mySeat = null;
     screen = 'home';
     if (typeof location !== 'undefined' && location.hash) {
@@ -111,6 +131,7 @@
         {online}
         openManual={relayFailed}
         onLocal={startLocal}
+        onComputer={startComputer}
         onConnecting={() => (screen = 'waiting')}
         onLoaded={startLoaded}
       />
@@ -121,7 +142,12 @@
     </main>
   {:else}
     <main class="game">
-      <Sidebar {game} online={isOnline ? online : null} onLeave={leaveGame} />
+      <Sidebar
+        {game}
+        online={mode === 'online' ? online : null}
+        bot={mode === 'computer' ? bot : null}
+        onLeave={leaveGame}
+      />
       <div class="board-wrap">
         <Board
           view={game.view}

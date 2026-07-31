@@ -1,7 +1,7 @@
 # TwixT
 
 A complete [TwixT](https://en.wikipedia.org/wiki/TwixT) implementation for the browser, playable
-hot-seat on one device or peer-to-peer between two browsers anywhere.
+hot-seat on one device, against the built-in engine, or peer-to-peer between two browsers anywhere.
 
 **There is no backend.** The app is a static bundle — put it on GitHub Pages, Netlify, any CDN, or
 open it from the filesystem. Nothing to deploy, run, or pay for.
@@ -19,7 +19,7 @@ npm run dev      # http://localhost:5173
 ```sh
 npm run build    # static bundle in dist/
 npm run preview  # serve the built bundle
-npm test         # engine, protocol, session and DOM tests
+npm test         # engine, search, protocol, session and DOM tests
 npm run check    # svelte-check + TypeScript
 ```
 
@@ -51,6 +51,40 @@ click any of your links to remove it, or click a dashed lane to add a link auto-
 
 Declining a link is a real tactic, which is why confirmation exists. If you would rather commit the
 moment you place a peg, turn on *Skip move confirmation* — you give up link editing in exchange.
+
+## Playing the computer
+
+Pick a board size and a colour, and the engine plays the other side. It thinks for about a second
+and a half a move, in a Web Worker, so the page stays responsive and the board simply goes quiet
+while it is your opponent's turn. There is no model to download and nothing to call: it is search,
+and it ships in the bundle.
+
+It uses the pie rule, and it allows takebacks without negotiation — *Undo* rewinds past its reply as
+well as your move. It does not resign and it does not answer draw offers.
+
+There is one strength, deliberately. Weakening a search engine means making it blunder on purpose,
+which reads as randomness rather than as a gentler opponent.
+
+### How it plays
+
+The evaluation is a single number per side: **the fewest extra pegs that would join its two border
+lines**, over a board where cells you already own are free, empty legal cells cost one, and enemy
+pegs and enemy border lines are impassable. A lane counts as usable if you already own the link, or
+if it is unlinked and uncrossed. Cost zero is exactly a win, so detecting a finished game falls out
+of the same computation.
+
+That drives an iterative-deepening alpha-beta search. The one thing it cannot afford is 570 legal
+moves per node, so the same distance fields do double duty as a relevance filter: a cell's potential
+is what a route through it would cost, and cells lying on a cheapest route for *either* player —
+attack and defence in one measure — are the ones the search looks at. Around sixteen per node, four
+plies deep in the time allowed, more where the position is forcing.
+
+Two implementation notes. The search cannot use `GameState`, which clones an array and three maps
+per move; it gets a mutable board where placing a peg is a handful of array writes, and the two are
+held to agreement by a test that replays random games through both and compares them move for move.
+That board is fast because **which knight lanes cross a given knight lane is fixed geometry** —
+computed once per board size, so adding a link is marking a lane and bumping a counter on each lane
+it blocks.
 
 ## Playing over the internet
 
@@ -109,6 +143,7 @@ Svelte 5 + TypeScript + Vite, board rendered as SVG.
 
 ```
 src/lib/engine/    board geometry, link crossing, rules, notation — no UI, no network
+src/lib/ai/        precomputed tables, search board, evaluation, search, worker
 src/lib/net/       room codes, both transports, wire protocol, session negotiation
 src/lib/stores/    reactive wrappers
 src/components/    Board, Lobby, Sidebar
@@ -134,4 +169,7 @@ indexed result against a brute-force scan over randomised positions.
 - ~10–15% of NAT pairings cannot connect, with no in-app remedy. See above.
 - Public relays are best-effort community infrastructure, not an SLA. Nostr's redundancy makes this
   robust in practice, and manual invitations are the backstop.
-- No spectators, no matchmaking beyond sharing a code, no server-side persistence, no AI opponent.
+- The computer opponent is a club-level player, not a strong one. Four plies of search sees an
+  immediate win, blocks one, and follows a short forcing sequence; it will not find deep ladder
+  tactics, and it never edits its own links, so it cannot drop an auto-link that blocks a better one.
+- No spectators, no matchmaking beyond sharing a code, no server-side persistence.
