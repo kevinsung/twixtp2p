@@ -2,6 +2,7 @@
   import Board from './components/Board.svelte';
   import Home from './components/Home.svelte';
   import Sidebar from './components/Sidebar.svelte';
+  import ThemeButton from './components/ThemeButton.svelte';
   import Waiting from './components/Waiting.svelte';
   import { codeFromHash } from './lib/net/roomcode';
   import { GameController } from './lib/stores/game.svelte';
@@ -39,27 +40,12 @@
     game.skipConfirmation = !settings.confirmMoves;
   });
 
-  $effect(() => {
-    void settings.confirmMoves;
-    void settings.theme;
-    settings.save();
-  });
-
   // 'auto' means "no opinion" — leave it to the browser's color-scheme.
   $effect(() => {
     const root = document.documentElement;
     if (settings.theme === 'auto') root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', settings.theme);
   });
-
-  function cycleTheme(): void {
-    settings.theme =
-      settings.theme === 'auto' ? 'light' : settings.theme === 'light' ? 'dark' : 'auto';
-  }
-
-  let themeLabel = $derived(
-    settings.theme === 'auto' ? 'Theme: auto' : settings.theme === 'light' ? 'Theme: light' : 'Theme: dark',
-  );
 
   // Waiting hands over to the board as soon as the peers are talking.
   $effect(() => {
@@ -108,18 +94,15 @@
 <svelte:window onkeydown={handleKey} />
 
 <div class="app" class:wide={screen === 'game'}>
-  <header>
-    <!-- The home screen carries its own wordmark, so the header would repeat it. -->
-    <h1 class:hidden={screen === 'home'}>TwixT</h1>
-    <div class="header-actions">
-      {#if screen === 'game'}
-        <button onclick={leaveGame}>{isOnline ? 'Leave game' : 'New game'}</button>
-      {/if}
-      <button onclick={cycleTheme} title="Switch between automatic, light and dark">
-        {themeLabel}
-      </button>
-    </div>
-  </header>
+  <!-- The game screen carries both controls in its sidebar, leaving the header
+       with nothing to hold and the board with more room. -->
+  {#if screen !== 'game'}
+    <header>
+      <!-- The home screen carries its own wordmark, so the header would repeat it. -->
+      <h1 class:hidden={screen === 'home'}>TwixT</h1>
+      <ThemeButton />
+    </header>
+  {/if}
 
   {#if screen === 'home'}
     <main>
@@ -138,7 +121,7 @@
     </main>
   {:else}
     <main class="game">
-      <Sidebar {game} online={isOnline ? online : null} />
+      <Sidebar {game} online={isOnline ? online : null} onLeave={leaveGame} />
       <div class="board-wrap">
         <Board
           view={game.view}
@@ -172,7 +155,7 @@
 
   header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
@@ -186,11 +169,6 @@
 
   h1.hidden {
     visibility: hidden;
-  }
-
-  .header-actions {
-    display: flex;
-    gap: 0.5rem;
   }
 
   /* The home and waiting screens centre themselves in whatever is left. */

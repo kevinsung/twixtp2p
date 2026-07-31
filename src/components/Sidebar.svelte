@@ -5,14 +5,17 @@
   import type { GameController } from '../lib/stores/game.svelte';
   import type { OnlineGame } from '../lib/stores/online.svelte';
   import { settings } from '../lib/stores/settings.svelte';
+  import ThemeButton from './ThemeButton.svelte';
 
   interface Props {
     game: GameController;
     /** Present only in peer-to-peer games. */
     online: OnlineGame | null;
+    /** Back to the home screen, local game or online alike. */
+    onLeave: () => void;
   }
 
-  let { game, online }: Props = $props();
+  let { game, online, onLeave }: Props = $props();
 
   let position = $derived(game.committed);
   let mySeat = $derived(game.control === 'both' ? null : game.control);
@@ -71,6 +74,11 @@
 </script>
 
 <aside class="sidebar">
+  <div class="panel-head">
+    <button onclick={onLeave}>Leave</button>
+    <ThemeButton />
+  </div>
+
   {#if online && net}
     <section class="connection" class:live={net.status === 'ready'}>
       <span class="pip" class:live={net.status === 'ready'}></span>
@@ -225,6 +233,13 @@
     .sidebar {
       width: auto;
     }
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
 
   .connection {

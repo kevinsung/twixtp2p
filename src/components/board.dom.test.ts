@@ -24,7 +24,8 @@ let app: Record<string, unknown> | null = null;
 
 beforeEach(() => {
   // `settings` is a module singleton, so preferences would otherwise leak from
-  // one test to the next.
+  // one test to the next. Most tests want the shorter path, so confirmation is
+  // turned off here and back on by `enableConfirmation` where it matters.
   settings.confirmMoves = false;
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -36,7 +37,6 @@ afterEach(() => {
   if (app) void unmount(app);
   app = null;
   host.remove();
-  localStorage.clear();
 });
 
 function click(element: Element | null | undefined): void {
@@ -60,7 +60,7 @@ function startLocalGame(): void {
   click(buttonWith('Start'));
 }
 
-/** Turn on the in-game "Confirm moves" toggle, which defaults to off. */
+/** Turn on the in-game "Confirm moves" toggle, which `beforeEach` forces off. */
 function enableConfirmation(): void {
   const box = [...host.querySelectorAll('label.check')].find((label) =>
     label.textContent?.includes('Confirm moves'),
@@ -140,7 +140,7 @@ describe('the home screen', () => {
 describe('placing pegs', () => {
   beforeEach(startLocalGame);
 
-  it('commits the moment a peg is placed by default', () => {
+  it('commits the moment a peg is placed when confirmation is off', () => {
     click(cell(5, 5));
     expect(host.querySelectorAll('.peg')).toHaveLength(1);
     expect(host.querySelectorAll('.peg.pending')).toHaveLength(0);
