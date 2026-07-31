@@ -216,6 +216,15 @@
     flex-direction: column;
     gap: 0.9rem;
     min-height: 0;
+    width: 18rem;
+    flex: none;
+  }
+
+  /* Stacked under the board, it spans whatever the column gives it. */
+  @media (max-width: 860px) {
+    .sidebar {
+      width: auto;
+    }
   }
 
   .connection {

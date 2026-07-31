@@ -107,7 +107,7 @@
 
 <svelte:window onkeydown={handleKey} />
 
-<div class="app">
+<div class="app" class:wide={screen === 'game'}>
   <header>
     <!-- The home screen carries its own wordmark, so the header would repeat it. -->
     <h1 class:hidden={screen === 'home'}>TwixT</h1>
@@ -138,6 +138,7 @@
     </main>
   {:else}
     <main class="game">
+      <Sidebar {game} online={isOnline ? online : null} />
       <div class="board-wrap">
         <Board
           view={game.view}
@@ -148,7 +149,6 @@
           onLink={(a, b) => game.toggleLink(a, b)}
         />
       </div>
-      <Sidebar {game} online={isOnline ? online : null} />
     </main>
   {/if}
 </div>
@@ -162,6 +162,12 @@
     margin: 0 auto;
     padding: 1rem;
     gap: 1rem;
+  }
+
+  /* The board is only as big as the space it is given, so the game screen takes
+     the whole window rather than the measure that suits prose. */
+  .app.wide {
+    max-width: none;
   }
 
   header {
@@ -194,18 +200,21 @@
   }
 
   .game {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 18rem;
+    display: flex;
+    justify-content: center;
     gap: 1.5rem;
   }
 
-  /* The SVG is square and letterboxes itself, so filling the cell in both
-     directions keeps the board as large as it can be without overflowing. */
+  /* The SVG is square, so the wrapper claims exactly the square it will draw:
+     width follows the row height via aspect-ratio, leaving no dead space beside
+     the board. When width runs short the wrapper shrinks and the SVG letterboxes
+     vertically instead, which costs no horizontal space. */
   .board-wrap {
+    flex: 0 1 auto;
     min-width: 0;
     min-height: 0;
-    display: grid;
-    place-items: center;
+    height: 100%;
+    aspect-ratio: 1;
   }
 
   @media (max-width: 860px) {
@@ -215,12 +224,15 @@
     }
 
     .game {
-      grid-template-columns: minmax(0, 1fr);
+      flex-direction: column;
     }
 
     /* Stacked on a phone, an unbounded square board would push the sidebar off
-       the screen entirely. */
+       the screen entirely. The board still reads first. */
     .board-wrap {
+      order: -1;
+      height: auto;
+      aspect-ratio: auto;
       max-height: 70vh;
     }
   }
