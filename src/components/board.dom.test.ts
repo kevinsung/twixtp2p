@@ -178,6 +178,46 @@ describe('placing pegs', () => {
     expect(host.querySelectorAll('.link')).toHaveLength(1);
   });
 
+  it('drops an auto-created link when its target is clicked', () => {
+    play(5, 5); // Red
+    play(9, 9); // Black, out of the way
+    enableConfirmation();
+    click(cell(6, 7)); // Red, a knight's move from (5,5)
+    expect(host.querySelectorAll('.link')).toHaveLength(1);
+
+    click(host.querySelector('.target-link[aria-label^="Remove link"]'));
+    expect(host.querySelectorAll('.link')).toHaveLength(0);
+
+    click(buttonWith('Confirm move'));
+    expect(host.querySelectorAll('.link')).toHaveLength(0);
+  });
+
+  /**
+   * jsdom does no hit testing, so the geometry that made link targets
+   * unclickable has to be asserted directly: they must sit above the cell
+   * targets and stop clear of the r=0.44 circles at each end.
+   */
+  it('keeps link targets on top of and clear of the cell targets', () => {
+    play(5, 5);
+    play(9, 9);
+    enableConfirmation();
+    click(cell(6, 7));
+
+    const groups = [...host.querySelectorAll('svg.board > g')].map((g) => g.getAttribute('class'));
+    expect(groups.indexOf('targets-links')).toBeGreaterThan(groups.indexOf('targets-cells'));
+
+    const target = host.querySelector('.target-link[aria-label^="Remove link"]')!;
+    const at = (name: string): number => Number(target.getAttribute(name));
+    // The lane runs (5,5)-(6,7); in board coordinates x is the column.
+    for (const [px, py] of [
+      [5, 5],
+      [7, 6],
+    ]) {
+      expect(Math.hypot(at('x1') - px, at('y1') - py)).toBeGreaterThan(0.44);
+      expect(Math.hypot(at('x2') - px, at('y2') - py)).toBeGreaterThan(0.44);
+    }
+  });
+
   it('records moves in the sidebar in board notation', () => {
     play(5, 5);
     const moves = host.querySelector('.moves ol')?.textContent ?? '';

@@ -5,10 +5,12 @@
    * stays readable.
    *
    * Layers, back to front: border bands, holes, links, pegs, ghost previews,
-   * then invisible hit targets. Cell targets sit above link targets so the
-   * area around a hole always belongs to the hole — a knight link passes
-   * within 0.45 of a neighbouring lattice point, so the two would otherwise
-   * compete.
+   * cell hit targets, then link hit targets. Links sit on top because a knight
+   * lane passes only 0.447 from the two lattice points it skirts, so cell
+   * targets (r 0.44) would otherwise cover every pixel of one. Instead the link
+   * target is trimmed clear of the holes at its ends and kept narrow enough to
+   * stay outside the drawn radius of the pegs it passes — see
+   * LINK_TARGET_CUT.
    */
   import { DARK, LIGHT, type Seat, colOf, isHoleCell, rowOf } from '../lib/engine/board';
   import {
@@ -130,6 +132,36 @@
   /** Link hit targets only matter while a turn is being composed. */
   let linksClickable = $derived(interactive && pendingPlace !== null);
 
+  /**
+   * How much of each end of a link is left to the holes there.
+   *
+   * Link targets sit above cell targets, so without this the two ends of a link
+   * would cover the pegs they join — including the pending peg, clicking which
+   * confirms the turn. 0.55 clears the 0.44 cell target with room to spare and
+   * still leaves a 1.14-long handle on a 2.24-long lane.
+   */
+  const LINK_TARGET_CUT = 0.55;
+
+  /** A link's hit target: the lane with `LINK_TARGET_CUT` taken off each end. */
+  function targetLine(a: number, b: number): {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } {
+    const ax = x(a);
+    const ay = y(a);
+    const dx = x(b) - ax;
+    const dy = y(b) - ay;
+    const scale = LINK_TARGET_CUT / Math.hypot(dx, dy);
+    return {
+      x1: ax + dx * scale,
+      y1: ay + dy * scale,
+      x2: ax + dx * (1 - scale),
+      y2: ay + dy * (1 - scale),
+    };
+  }
+
   function handleCellKey(event: KeyboardEvent, cell: number): void {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -237,45 +269,7 @@
     <circle class="hover-peg {seatClass(seat)}" cx={x(hover)} cy={y(hover)} r="0.3" />
   {/if}
 
-  <!-- Hit targets. Links first, cells above them. -->
-  {#if linksClickable}
-    <g class="targets-links">
-      {#each links as link (link.a * size * size + link.b)}
-        {#if view.pegs[link.a] === seat}
-          <line
-            class="target-link"
-            x1={x(link.a)}
-            y1={y(link.a)}
-            x2={x(link.b)}
-            y2={y(link.b)}
-            role="button"
-            tabindex="0"
-            aria-label="Remove link {cellToNotation(size, link.a)} to {cellToNotation(
-              size,
-              link.b,
-            )}"
-            onclick={() => onLink(link.a, link.b)}
-            onkeydown={(event) => handleLinkKey(event, link.a, link.b)}
-          />
-        {/if}
-      {/each}
-      {#each ghosts.filter((g) => !g.blocked && !g.preview) as ghost (ghost.a * size * size + ghost.b)}
-        <line
-          class="target-link"
-          x1={x(ghost.a)}
-          y1={y(ghost.a)}
-          x2={x(ghost.b)}
-          y2={y(ghost.b)}
-          role="button"
-          tabindex="0"
-          aria-label="Add link {cellToNotation(size, ghost.a)} to {cellToNotation(size, ghost.b)}"
-          onclick={() => onLink(ghost.a, ghost.b)}
-          onkeydown={(event) => handleLinkKey(event, ghost.a, ghost.b)}
-        />
-      {/each}
-    </g>
-  {/if}
-
+  <!-- Hit targets. Cells first, trimmed link handles above them. -->
   <g class="targets-cells">
     {#each holes as cell (cell)}
       <circle
@@ -293,6 +287,46 @@
       />
     {/each}
   </g>
+
+  {#if linksClickable}
+    <g class="targets-links">
+      {#each links as link (link.a * size * size + link.b)}
+        {#if view.pegs[link.a] === seat}
+          {@const line = targetLine(link.a, link.b)}
+          <line
+            class="target-link remove"
+            x1={line.x1}
+            y1={line.y1}
+            x2={line.x2}
+            y2={line.y2}
+            role="button"
+            tabindex="0"
+            aria-label="Remove link {cellToNotation(size, link.a)} to {cellToNotation(
+              size,
+              link.b,
+            )}"
+            onclick={() => onLink(link.a, link.b)}
+            onkeydown={(event) => handleLinkKey(event, link.a, link.b)}
+          />
+        {/if}
+      {/each}
+      {#each ghosts.filter((g) => !g.blocked && !g.preview) as ghost (ghost.a * size * size + ghost.b)}
+        {@const line = targetLine(ghost.a, ghost.b)}
+        <line
+          class="target-link add"
+          x1={line.x1}
+          y1={line.y1}
+          x2={line.x2}
+          y2={line.y2}
+          role="button"
+          tabindex="0"
+          aria-label="Add link {cellToNotation(size, ghost.a)} to {cellToNotation(size, ghost.b)}"
+          onclick={() => onLink(ghost.a, ghost.b)}
+          onkeydown={(event) => handleLinkKey(event, ghost.a, ghost.b)}
+        />
+      {/each}
+    </g>
+  {/if}
 </svg>
 
 <style>
@@ -389,10 +423,29 @@
     fill: var(--seat-dark);
   }
 
+  /* 0.28 wide is the most a lane can take: half of it is 0.14, and the lane
+     runs 0.447 from the holes it skirts, so the target stops just outside their
+     drawn pegs (r 0.3) rather than stealing clicks meant for them. */
   .target-link {
     stroke: transparent;
-    stroke-width: 0.3;
+    stroke-width: 0.28;
+    stroke-linecap: round;
     cursor: pointer;
+  }
+  /* Sitting on top of the holes, a link has to announce itself — otherwise it
+     reads as inert until you happen to hit it. */
+  .target-link:hover,
+  .target-link:focus-visible {
+    outline: none;
+    opacity: 0.4;
+  }
+  .target-link.remove:hover,
+  .target-link.remove:focus-visible {
+    stroke: var(--danger);
+  }
+  .target-link.add:hover,
+  .target-link.add:focus-visible {
+    stroke: var(--focus);
   }
 
   .target-cell {
