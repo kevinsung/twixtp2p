@@ -12,7 +12,7 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { idx } from '../lib/engine/board';
+import { colOf, idx, rowOf } from '../lib/engine/board';
 import { cellToNotation } from '../lib/engine/notation';
 import { settings } from '../lib/stores/settings.svelte';
 import App from '../App.svelte';
@@ -105,6 +105,36 @@ describe('the app shell', () => {
     // 24x24 minus the four removed corners.
     expect(host.querySelectorAll('.target-cell')).toHaveLength(SIZE * SIZE - 4);
     expect(host.querySelectorAll('.peg')).toHaveLength(0);
+  });
+
+  /**
+   * The rest of the suite reaches hit targets by accessible name, so nothing
+   * else would notice a target that had drifted off its hole. Aiming at a peg
+   * and hitting its neighbour is exactly the bug this guards against.
+   */
+  it('gives every hole a hit target centred on it, tiling the board', () => {
+    startLocalGame();
+
+    for (const target of host.querySelectorAll('.target-cell')) {
+      const label = target.getAttribute('aria-label');
+      const at = [...Array(SIZE * SIZE).keys()].find(
+        (candidate) => cellToNotation(SIZE, candidate) === label,
+      );
+      expect(at, `no cell for ${label}`).toBeDefined();
+
+      const box = {
+        x: Number(target.getAttribute('x')),
+        y: Number(target.getAttribute('y')),
+        width: Number(target.getAttribute('width')),
+        height: Number(target.getAttribute('height')),
+      };
+      // Unit squares leave no point of the board unclaimed, and a centred one
+      // claims exactly the points nearest its own hole.
+      expect(box.width).toBe(1);
+      expect(box.height).toBe(1);
+      expect(box.x + box.width / 2).toBe(colOf(SIZE, at!));
+      expect(box.y + box.height / 2).toBe(rowOf(SIZE, at!));
+    }
   });
 });
 

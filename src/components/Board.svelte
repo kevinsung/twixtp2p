@@ -5,11 +5,14 @@
    * stays readable.
    *
    * Layers, back to front: border bands, holes, links, pegs, ghost previews,
-   * cell hit targets, then link hit targets. Links sit on top because a knight
-   * lane passes only 0.447 from the two lattice points it skirts, so cell
-   * targets (r 0.44) would otherwise cover every pixel of one. Instead the link
-   * target is trimmed clear of the holes at its ends and kept narrow enough to
-   * stay outside the drawn radius of the pegs it passes — see
+   * cell hit targets, then link hit targets. A cell's hit target is the whole
+   * unit square around it, which on a square lattice is exactly the set of
+   * points nearer to that hole than to any other — so every spot on the board
+   * belongs to the peg you would say it belongs to, with no dead gaps in
+   * between. Links sit on top because a knight lane passes only 0.447 from the
+   * two lattice points it skirts and would otherwise be unreachable. Instead
+   * the link target is trimmed clear of the holes at its ends and kept narrow
+   * enough to stay outside the drawn radius of the pegs it passes — see
    * LINK_TARGET_CUT.
    */
   import { DARK, LIGHT, type Seat, colOf, isHoleCell, rowOf } from '../lib/engine/board';
@@ -137,10 +140,12 @@
    *
    * Link targets sit above cell targets, so without this the two ends of a link
    * would cover the pegs they join — including the pending peg, clicking which
-   * confirms the turn. 0.55 clears the 0.44 cell target with room to spare and
-   * still leaves a 1.14-long handle on a 2.24-long lane.
+   * confirms the turn. A knight lane leaves a hole's unit square 0.559 out, and
+   * the target's round cap reaches 0.14 back from where it starts, so 0.70
+   * hands every point of a peg's square back to the peg. That still leaves a
+   * 0.84-long handle on a 2.24-long lane, three times its own width.
    */
-  const LINK_TARGET_CUT = 0.55;
+  const LINK_TARGET_CUT = 0.7;
 
   /** A link's hit target: the lane with `LINK_TARGET_CUT` taken off each end. */
   function targetLine(a: number, b: number): {
@@ -160,6 +165,19 @@
       x2: ax + dx * (1 - scale),
       y2: ay + dy * (1 - scale),
     };
+  }
+
+  /**
+   * The squares tile the holes but not the corners or the margin, so without
+   * this the ghost would linger wherever it was last set. Link targets are
+   * spared: mid-turn `hover` re-roots the ghost links, and clearing it as the
+   * pointer arrives on a candidate would take that candidate away just as it
+   * was about to be clicked.
+   */
+  function clearHoverOffTarget(event: PointerEvent): void {
+    const target = event.target as Element;
+    const classes = target.classList;
+    if (!classes?.contains('target-cell') && !classes?.contains('target-link')) hover = null;
   }
 
   function handleCellKey(event: KeyboardEvent, cell: number): void {
@@ -183,6 +201,7 @@
   role="grid"
   tabindex="-1"
   aria-label="TwixT board"
+  onpointerover={clearHoverOffTarget}
   onpointerleave={() => (hover = null)}
 >
   <!-- Border bands: each player's two goal lines. -->
@@ -272,12 +291,13 @@
   <!-- Hit targets. Cells first, trimmed link handles above them. -->
   <g class="targets-cells">
     {#each holes as cell (cell)}
-      <circle
+      <rect
         class="target-cell"
         class:enabled={interactive}
-        cx={x(cell)}
-        cy={y(cell)}
-        r="0.44"
+        x={x(cell) - 0.5}
+        y={y(cell) - 0.5}
+        width="1"
+        height="1"
         role="gridcell"
         tabindex={interactive ? 0 : -1}
         aria-label={cellToNotation(size, cell)}
@@ -425,7 +445,10 @@
 
   /* 0.28 wide is the most a lane can take: half of it is 0.14, and the lane
      runs 0.447 from the holes it skirts, so the target stops just outside their
-     drawn pegs (r 0.3) rather than stealing clicks meant for them. */
+     drawn pegs (r 0.3). It does cover part of those holes' squares, but only
+     while a turn is being composed, when the cells worth clicking are the
+     pending peg and your own pegs — and LINK_TARGET_CUT keeps both of those
+     whole. */
   .target-link {
     stroke: transparent;
     stroke-width: 0.28;
@@ -452,8 +475,17 @@
     fill: transparent;
     pointer-events: none;
   }
+  /*
+   * `fill`, never `all`. Under `all` a shape is hit on its perimeter as well as
+   * its interior "regardless of the value of the fill, stroke and visibility
+   * properties" — and stroke-width defaults to 1, which on this board is a whole
+   * cell. That gave every target an invisible one-cell-wide band around its edge,
+   * so the squares overlapped three deep and each point went to the last of them
+   * in document order: the hole down and to the right. Aiming at a peg picked its
+   * neighbour, which read as the hit area sitting up and to the left.
+   */
   .target-cell.enabled {
-    pointer-events: all;
+    pointer-events: fill;
     cursor: pointer;
   }
   .target-cell:focus-visible {
